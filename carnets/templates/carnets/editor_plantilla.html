@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Editor: {{ plantilla.nombre }}</title>
+        <style>
+            body { font-family: Arial; margin: 20px; background: #e9e9e9; }
+           .container { display: flex; gap: 20px; }
+            #panel-elementos {
+                width: 220px; background: white; padding: 15px;
+                border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                height: fit-content;
+            }
+           .elemento-panel {
+                padding: 12px; margin: 8px 0; background: #f8f9fa;
+                border: 1px solid #dee2e6; cursor: grab; border-radius: 4px;
+                user-select: none;
+            }
+           .elemento-panel:active { cursor: grabbing; background: #e9ecef; }
+           .elemento-panel:hover { border-color: #007bff; }
+            #canvas {
+                position: relative;
+                background: white;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+            #canvas.dragover { outline: 3px dashed #007bff; }
+           .draggable {
+                position: absolute;
+                border: 2px dashed transparent;
+                cursor: move;
+                display: flex;
+                align-items: center;
+                overflow: hidden;
+                box-sizing: border-box;
+                padding: 2px;
+            }
+           .draggable:hover,.draggable.selected {
+                border-color: #007bff;
+                background: rgba(0,123,255,0.05);
+            }
+           .delete-btn {
+                position: absolute;
+                top: -10px; right: -10px;
+                background: #dc3545; color: white;
+                border: none; border-radius: 50%;
+                width: 20px; height: 20px;
+                cursor: pointer; display: none;
+                font-size: 12px; line-height: 1;
+            }
+           .draggable.selected.delete-btn { display: block; }
+           .toolbar {
+                background: white; padding: 15px; margin-bottom: 20px;
+                border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            #propiedades {
+                width: 260px; background: white; padding: 15px;
+                border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                height: fit-content; display: none;
+            }
+            #propiedades label { display: block; margin: 10px 0 4px; font-weight: bold; font-size: 13px; }
+            #propiedades input, #propiedades select { width: 100%; padding: 6px; box-sizing: border-box; }
+            #propiedades button { width: 100%; padding: 8px; margin-top: 8px; }
+        </style>
+    </head>
+    <body>
+        <div class="toolbar">
+            <h2 style="margin: 0 0 10px 0;">Editor: {{ plantilla.company.name }} - {{ plantilla.nombre }}</h2>
+            <form method="post" action="{% url 'cambiar_orientacion' plantilla.id %}" style="display: inline-block;">
+                {% csrf_token %}
+                <label><strong>Orientación:</strong></label>
+                <select name="orientacion" onchange="this.form.submit()">
+                    <option value="H" {% if plantilla.orientacion == 'H' %}selected{% endif %}>Horizontal 85.6 x 54 mm</option>
+                    <option value="V" {% if plantilla.orientacion == 'V' %}selected{% endif %}>Vertical 54 x 85.6 mm</option>
+                </select>
+            </form>
+            <span style="margin-left: 20px; color: #666;">
+                Tamaño: {{ canvas_w }} x {{ canvas_h }} px | Escala: 10px = 1mm
+            </span>
+            <a href="{% url 'generar_pdf' plantilla.id %}" target="_blank"
+               style="float:right; background: #d63384; color: white; padding: 10px; text-decoration: none; border-radius: 5px;">
+               Generar PDF
+            </a>
+        </div>
+
+        <div class="container">
+            <!-- PANEL LATERAL -->
+            <div id="panel-elementos">
+                <h4 style="margin-top: 0;">Drag and drop to canvas</h4>
+                <div class="elemento-panel" draggable="true" data-tipo="nombre">📝 Name</div>
+                <div class="elemento-panel" draggable="true" data-tipo="cargo">💼 Position</div>
+                <div class="elemento-panel" draggable="true" data-tipo="identificacion">🪪 Identification</div>
+                <div class="elemento-panel" draggable="true" data-tipo="telefono">📞 Phone</div>
+                <div class="elemento-panel" draggable="true" data-tipo="num_empleado">🔢 # employed</div>
+                <div class="elemento-panel" draggable="true" data-tipo="empresa">🏢 Company</div>
+                <div class="elemento-panel" draggable="true" data-tipo="logo">🖼 Logo</div>
+                <div class="elemento-panel" draggable="true" data-tipo="foto">📷 Photo</div>
+                <div class="elemento-panel" draggable="true" data-tipo="qr">📱 QR</div>
+                <div class="elemento-panel" draggable="true" data-tipo="barcode">📊 Barcode</div>
+                <div class="elemento-panel" draggable="true" data-tipo="texto">🔤 Text</div>
+            </div>
+
+            <!-- CANVAS -->
+            <div id="canvas"
+                data-plantilla-id="{{ plantilla.id }}"
+                style="width: {{ canvas_w }}px; height: {{ canvas_h }}px;">
+                {% if plantilla.imagen_fondo %}
+                <img src="{{ plantilla.imagen_fondo.url }}"
+                    style="width: 100%; height: 100%; position: absolute; pointer-events: none;">
+                {% endif %}
+
+                {% for elem in plantilla.elementos.all %}
+                <div class="draggable"
+                    data-id="{{ elem.id }}"
+                    data-tipo="{{ elem.tipo }}"
+                    data-x="{{ elem.x }}"
+                    data-y="{{ elem.y }}"
+                    data-color="{{ elem.color }}"
+                    data-bg="{{ elem.background_color }}"
+                    data-weight="{{ elem.font_weight }}"
+                    data-align="{{ elem.text_align }}"
+                    style="left: {{ elem.x }}px; top: {{ elem.y }}px;
+                           width: {{ elem.width }}px; height: {{ elem.height }}px;
+                           font-size: {{ elem.font_size }}px;
+                           color: {{ elem.color }};
+                           background-color: {{ elem.background_color }};
+                           font-weight: {{ elem.font_weight }};
+                           justify-content: {% if elem.text_align == 'center' %}center{% elif elem.text_align == 'right' %}flex-end{% else %}flex-start{% endif %};">
+                    <button class="delete-btn" onclick="eliminarElemento({{ elem.id }}, this)">×</button>
+                    {% if elem.tipo == 'foto' or elem.tipo == 'logo' %}
+                        <div style="background:#ddd; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:12px;">
+                            {{ elem.get_tipo_display }}
+                        </div>
+                    {% elif elem.tipo == 'qr' %}
+                        <div style="background:#000; color:#fff; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:10px;">QR</div>
+                    {% elif elem.tipo == 'barcode' %}
+                        <div style="background:repeating-linear-gradient(90deg,#000,#000 2px,#fff 2px,#fff 4px); width:100%; height:100%;"></div>
+                    {% else %}
+                        {{ elem.texto_fijo|default:elem.get_tipo_display }}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- PANEL PROPIEDADES -->
+            <div id="propiedades">
+                <h4>Propiedades</h4>
+                <input type="hidden" id="prop-id">
+
+                <label>Texto:</label>
+                <input type="text" id="prop-texto">
+
+                <label>Tamaño letra:</label>
+                <input type="number" id="prop-fontsize" min="6" max="72">
+
+                <label>Color texto:</label>
+                <input type="color" id="prop-color">
+
+                <label>Color fondo:</label>
+                <input type="color" id="prop-bg">
+                <button onclick="document.getElementById('prop-bg').value='';aplicarPropiedades();">Sin fondo</button>
+
+                <label>Grosor:</label>
+                <select id="prop-weight">
+                    <option value="normal">Normal</option>
+                    <option value="bold">Negrita</option>
+                </select>
+
+                <label>Alineación:</label>
+                <select id="prop-align">
+                    <option value="left">Izquierda</option>
+                    <option value="center">Centro</option>
+                    <option value="right">Derecha</option>
+                </select>
+
+                <button onclick="aplicarPropiedades()" style="background:#0d6efd;color:white;">Aplicar</button>
+                <button onclick="eliminarSeleccionado()" style="background:#dc3545;color:white;">Eliminar</button>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+        <script>
+            const csrftoken = '{{ csrf_token }}';
+            const canvas = document.getElementById('canvas');
+            const plantillaId = canvas.dataset.plantillaId;
+            let elementoSeleccionado = null;
+
+            // 1. DRAG desde panel lateral
+            document.querySelectorAll('.elemento-panel').forEach(el => {
+                el.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('tipo', e.target.dataset.tipo);
+                });
+            });
+
+            // 2. DROP en canvas
+            canvas.addEventListener('dragover', e => {
+                e.preventDefault();
+                canvas.classList.add('dragover');
+            });
+
+            canvas.addEventListener('dragleave', () => {
+                canvas.classList.remove('dragover');
+            });
+
+            canvas.addEventListener('drop', async e => {
+                e.preventDefault();
+                canvas.classList.remove('dragover');
+
+                const tipo = e.dataTransfer.getData('tipo');
+                if (!tipo) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                const res = await fetch("{% url 'crear_elemento' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify({
+                        plantilla_id: plantillaId,
+                        tipo: tipo,
+                        x: x,
+                        y: y,
+                        width: ['foto','logo','qr'].includes(tipo)? 100 : 150,
+                        height: ['foto','logo','qr'].includes(tipo)? 100 : 30,
+                        texto_fijo: tipo.toUpperCase()
+                    })
+                });
+
+                const data = await res.json();
+                if(data.status === 'ok') {
+                    crearElementoEnCanvas(data.id, tipo, x, y, data.texto);
+                    location.reload(); // Recarga para obtener el ID correcto
+                }
+            });
+
+            function crearElementoEnCanvas(id, tipo, x, y, texto) {
+                const div = document.createElement('div');
+                div.className = 'draggable';
+                div.dataset.id = id;
+                div.dataset.tipo = tipo;
+                div.dataset.x = x;
+                div.dataset.y = y;
+                div.dataset.color = '#000000';
+                div.dataset.bg = '';
+                div.dataset.weight = 'normal';
+                div.dataset.align = 'left';
+                div.style.left = `${x}px`;
+                div.style.top = `${y}px`;
+                div.style.width = `${['foto','logo','qr'].includes(tipo)? 100 : 150}px`;
+                div.style.height = `${['foto','logo','qr'].includes(tipo)? 100 : 30}px`;
+
+                let contenido = texto;
+                if (tipo === 'foto' || tipo === 'logo') {
+                    contenido = `<div style="background:#ddd; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:12px;">${tipo.toUpperCase()}</div>`;
+                } else if (tipo === 'qr') {
+                    contenido = `<div style="background:#000; color:#fff; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:10px;">QR</div>`;
+                } else if (tipo === 'barcode') {
+                    contenido = `<div style="background:repeating-linear-gradient(90deg,#000,#000 2px,#fff 2px,#fff 4px); width:100%; height:100%;"></div>`;
+                }
+
+                div.innerHTML = `<button class="delete-btn" onclick="eliminarElemento(${id}, this)">×</button>${contenido}`;
+                canvas.appendChild(div);
+                hacerDraggable(div);
+                seleccionarElemento(div);
+            }
+
+            function hacerDraggable(elemento) {
+                interact(elemento)
+               .draggable({
+                    modifiers: [
+                        interact.modifiers.restrictRect({ restriction: 'parent', endOnly: true }),
+                        interact.modifiers.snap({
+                            targets: [interact.snappers.grid({ x: 10, y: 10 })],
+                            range: Infinity,
+                            relativePoints: [{ x: 0, y: 0 }]
+                        })
+                    ],
+                    listeners: {
+                        start(event) { seleccionarElemento(event.target); },
+                        move(event) {
+                            const target = event.target;
+                            const x = (parseFloat(target.dataset.x) || 0) + event.dx;
+                            const y = (parseFloat(target.dataset.y) || 0) + event.dy;
+                            target.style.left = `${x}px`;
+                            target.style.top = `${y}px`;
+                            target.dataset.x = x;
+                            target.dataset.y = y;
+                        }
+                    }
+                })
+               .resizable({
+                    edges: { left: true, right: true, bottom: true, top: true },
+                    modifiers: [interact.modifiers.restrictSize({ min: { width: 30, height: 20 } })],
+                    listeners: {
+                        move(event) {
+                            Object.assign(event.target.style, {
+                                width: `${event.rect.width}px`,
+                                height: `${event.rect.height}px`
+                            });
+                        }
+                    }
+                })
+               .on('dragend resizeend', function (event) {
+                    guardarPosicion(event.target);
+                });
+            }
+
+            function seleccionarElemento(el) {
+                document.querySelectorAll('.draggable').forEach(d => d.classList.remove('selected'));
+                el.classList.add('selected');
+                elementoSeleccionado = el;
+
+                // Cargar propiedades
+                document.getElementById('propiedades').style.display = 'block';
+                document.getElementById('prop-id').value = el.dataset.id || '';
+                document.getElementById('prop-texto').value = el.textContent.trim();
+                document.getElementById('prop-fontsize').value = parseInt(el.style.fontSize) || 16;
+                document.getElementById('prop-color').value = el.dataset.color || '#000000';
+                document.getElementById('prop-bg').value = el.dataset.bg || '#ffffff';
+                document.getElementById('prop-weight').value = el.dataset.weight || 'normal';
+                document.getElementById('prop-align').value = el.dataset.align || 'left';
+            }
+
+            function aplicarPropiedades() {
+                if (!elementoSeleccionado) return;
+
+                const texto = document.getElementById('prop-texto').value;
+                const fontsize = document.getElementById('prop-fontsize').value;
+                const color = document.getElementById('prop-color').value;
+                const bg = document.getElementById('prop-bg').value;
+                const weight = document.getElementById('prop-weight').value;
+                const align = document.getElementById('prop-align').value;
+
+                // No cambiar texto si es foto/logo/qr/barcode
+                const tipo = elementoSeleccionado.dataset.tipo;
+                if (!['foto','logo','qr','barcode'].includes(tipo)) {
+                    elementoSeleccionado.childNodes[1].textContent = texto;
+                }
+
+                elementoSeleccionado.style.fontSize = fontsize + 'px';
+                elementoSeleccionado.style.color = color;
+                elementoSeleccionado.style.backgroundColor = bg;
+                elementoSeleccionado.style.fontWeight = weight;
+                elementoSeleccionado.style.justifyContent = align === 'center'? 'center' : align === 'right'? 'flex-end' : 'flex-start';
+
+                elementoSeleccionado.dataset.color = color;
+                elementoSeleccionado.dataset.bg = bg;
+                elementoSeleccionado.dataset.weight = weight;
+                elementoSeleccionado.dataset.align = align;
+
+                guardarPropiedades(elementoSeleccionado);
+            }
+
+            function guardarPosicion(el) {
+                fetch("{% url 'actualizar_elemento' %}", {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+                    body: JSON.stringify({
+                        id: el.dataset.id,
+                        x: parseFloat(el.dataset.x) || 0,
+                        y: parseFloat(el.dataset.y) || 0,
+                        width: el.offsetWidth,
+                        height: el.offsetHeight
+                    })
+                });
+            }
+
+            function guardarPropiedades(el) {
+                fetch("{% url 'actualizar_elemento' %}", {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+                    body: JSON.stringify({
+                        id: el.dataset.id,
+                        texto_fijo: el.textContent.trim(),
+                        font_size: parseInt(el.style.fontSize),
+                        color: el.dataset.color,
+                        background_color: el.dataset.bg,
+                        font_weight: el.dataset.weight,
+                        text_align: el.dataset.align
+                    })
+                });
+            }
+
+            async function eliminarElemento(id, btn) {
+                if(!confirm('¿Eliminar elemento?')) return;
+                await fetch("{% url 'eliminar_elemento' %}", {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+                    body: JSON.stringify({id: id})
+                });
+                btn.parentElement.remove();
+                document.getElementById('propiedades').style.display = 'none';
+            }
+
+            function eliminarSeleccionado() {
+                if (elementoSeleccionado) {
+                    eliminarElemento(elementoSeleccionado.dataset.id, elementoSeleccionado.querySelector('.delete-btn'));
+                }
+            }
+
+            // Aplicar a elementos existentes
+            document.querySelectorAll('.draggable').forEach(hacerDraggable);
+
+            // Click en canvas deselecciona
+            canvas.addEventListener('click', e => {
+                if(e.target === canvas) {
+                    document.querySelectorAll('.draggable').forEach(d => d.classList.remove('selected'));
+                    document.getElementById('propiedades').style.display = 'none';
+                    elementoSeleccionado = null;
+                }
+            });
+        </script>
+    </body>
+</html>

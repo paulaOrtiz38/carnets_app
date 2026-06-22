@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+    {{ block.super }}
+    <li>
+        <a href="{{ editor_url }}" class="addlink" target="_blank">Abrir Editor Visual</a>
+    </li>
+{% endblock %}
